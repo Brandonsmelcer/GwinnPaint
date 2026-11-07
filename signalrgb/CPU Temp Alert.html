@@ -3,122 +3,83 @@
 <head>
     <meta charset="utf-8" />
     <title>CPU Temp Alert</title>
-    <meta description="Solid green when the CPU is cool, blue when it is getting warm, and flashing red when it is overheating. Use Test Mode to preview colors without stressing the CPU." />
+    <meta description="Solid green when the CPU is cool, blue when it is getting warm, and flashing red when it is overheating. Use Force Red Flash or Test Temperature to preview colors without stressing the CPU." />
     <meta publisher="Custom" />
-    <meta property="cpuSensor" label="CPU Temperature Sensor" type="sensor" tooltip="Pick CPU Temperature or CPU Package Temperature." />
+    <meta property="forceRed" label="Force Red Flash" type="boolean" default="0" tooltip="Turn this on to test flashing red. It ignores temperature." />
+    <meta property="testMode" label="Test Mode (ignore real CPU)" type="boolean" default="1" tooltip="Uses the Test Temperature slider instead of the live CPU sensor." />
+    <meta property="testTemp" label="Test Temperature (C)" type="number" min="20" max="110" default="45" tooltip="Fake CPU temperature used while Test Mode is on. 90 or higher flashes red." />
     <meta property="safeTemp" label="Safe Below (C)" type="number" min="30" max="90" default="65" tooltip="Solid green at or below this temperature." />
     <meta property="hotTemp" label="Overheat At (C)" type="number" min="50" max="110" default="90" tooltip="Flashing red at or above this temperature. Blue is used between Safe and Overheat." />
-    <meta property="flashSpeed" label="Flash Speed" type="number" min="1" max="10" default="4" />
-    <meta property="testMode" label="Test Mode (ignore real CPU)" type="boolean" default="1" tooltip="Leave this on while testing. Uses the Test Temperature slider instead of the live sensor." />
-    <meta property="testTemp" label="Test Temperature (C)" type="number" min="20" max="110" default="45" tooltip="Fake CPU temperature used while Test Mode is on." />
+    <meta property="flashSpeed" label="Flash Speed" type="number" min="1" max="10" default="3" />
     <meta property="safeColor" label="Safe Color" type="color" default="#00cc44" min="0" max="360" />
     <meta property="warmColor" label="Warm Color" type="color" default="#0088ff" min="0" max="360" />
     <meta property="hotColor" label="Overheat Color" type="color" default="#ff0000" min="0" max="360" />
+    <meta property="cpuSensor" label="CPU Temperature Sensor" type="sensor" tooltip="Pick CPU Temperature, not CPU Fan. Only used when Test Mode is off." />
 </head>
 <body style="margin:0;padding:0;background:#000;overflow:hidden;">
     <canvas id="exCanvas" width="320" height="200"></canvas>
-
-    <div id="browserHud">
-        <h1>CPU Temp Alert - browser test</h1>
-        <p>This panel only appears in a normal web browser. SignalRGB uses the canvas, so your lights will only show the solid/flashing color, not this UI.</p>
-        <div class="temp" id="hudTemp">45 C</div>
-        <div class="state" id="hudState">SAFE · green</div>
-        <label for="hudSlider">Fake CPU temperature</label>
-        <input id="hudSlider" type="range" min="20" max="110" value="45" />
-        <div class="presets">
-            <button type="button" data-temp="40">Safe 40 C</button>
-            <button type="button" data-temp="75">Warm 75 C</button>
-            <button type="button" data-temp="95">Hot 95 C</button>
-        </div>
-        <p class="hint">If this canvas goes green, then blue, then flashing red, the effect is working. You can then copy the file into SignalRGB.</p>
-    </div>
-
-    <style>
-        #browserHud {
-            display: none;
-            position: fixed;
-            right: 16px;
-            top: 16px;
-            width: 280px;
-            padding: 16px;
-            color: #fff;
-            font-family: Segoe UI, sans-serif;
-            background: rgba(12, 14, 18, 0.92);
-            border: 1px solid #333;
-            border-radius: 10px;
-            z-index: 10;
-        }
-        #browserHud h1 { font-size: 15px; margin: 0 0 8px; }
-        #browserHud p { font-size: 12px; line-height: 1.4; color: #bbb; margin: 0 0 12px; }
-        #browserHud .temp { font-size: 42px; font-weight: 700; letter-spacing: -1px; }
-        #browserHud .state { margin: 0 0 12px; font-size: 13px; color: #9f9; }
-        #browserHud label { display: block; font-size: 12px; margin-bottom: 6px; }
-        #browserHud input[type="range"] { width: 100%; }
-        #browserHud .presets { display: flex; gap: 6px; margin: 12px 0; }
-        #browserHud button {
-            flex: 1;
-            border: 0;
-            border-radius: 6px;
-            padding: 8px 4px;
-            color: #fff;
-            cursor: pointer;
-            font-size: 11px;
-        }
-        #browserHud button[data-temp="40"] { background: #00cc44; color: #041; }
-        #browserHud button[data-temp="75"] { background: #0088ff; }
-        #browserHud button[data-temp="95"] { background: #ff0000; }
-        #browserHud .hint { margin-top: 8px; }
-    </style>
-
     <script>
         var canvas = document.getElementById("exCanvas");
         var ctx = canvas.getContext("2d");
         var width = 320;
         var height = 200;
-        var browserHud = document.getElementById("browserHud");
-        var hudSlider = document.getElementById("hudSlider");
-        var hudTemp = document.getElementById("hudTemp");
-        var hudState = document.getElementById("hudState");
-        var lastState = "";
-        var runningInBrowser = typeof engine === "undefined";
-
-        if (runningInBrowser) {
-            browserHud.style.display = "block";
-            canvas.style.width = "100vw";
-            canvas.style.height = "100vh";
-        }
 
         function toNumber(value, fallback) {
-            var parsed = Number(value);
+            if (typeof value === "number" && isFinite(value)) {
+                return value;
+            }
+            if (value == null || value === "") {
+                return fallback;
+            }
+            var parsed = parseFloat(String(value).replace(",", "."));
             return isFinite(parsed) ? parsed : fallback;
         }
 
         function toColor(value, fallback) {
-            return (typeof value === "string" && value.charAt(0) === "#") ? value : fallback;
+            if (typeof value === "number" && isFinite(value)) {
+                return "hsl(" + value + ", 100%, 50%)";
+            }
+            if (typeof value === "string") {
+                var trimmed = value.replace(/^\s+|\s+$/g, "");
+                if (trimmed.charAt(0) === "#" || trimmed.indexOf("rgb") === 0 || trimmed.indexOf("hsl") === 0) {
+                    return trimmed;
+                }
+            }
+            return fallback;
         }
 
         function isOn(value) {
-            return value === 1 || value === true || value === "1";
+            return value === 1 || value === true || value === "1" || value === "true" || value === "True" || value === "on";
         }
 
         function readSetting(name, fallback) {
-            return (typeof window[name] !== "undefined") ? window[name] : fallback;
+            try {
+                if (typeof window[name] !== "undefined") {
+                    return window[name];
+                }
+            } catch (error) {}
+            return fallback;
         }
 
         function readCpuTemp() {
-            if (isOn(readSetting("testMode", 1))) {
+            if (isOn(readSetting("forceRed", 0))) {
+                return 999;
+            }
+
+            var usingTestSlider = isOn(readSetting("testMode", 1));
+            if (usingTestSlider) {
                 return toNumber(readSetting("testTemp", 45), 45);
             }
 
             try {
                 var sensorName = readSetting("cpuSensor", "");
                 if (!sensorName || typeof engine === "undefined") {
-                    return null;
+                    return toNumber(readSetting("testTemp", 45), 45);
                 }
 
                 var getter = engine.getSensorValue || engine.GetSensorValue;
                 if (!getter) {
-                    return null;
+                    return toNumber(readSetting("testTemp", 45), 45);
                 }
 
                 var reading = getter.call(engine, sensorName);
@@ -128,14 +89,11 @@
                 if (typeof reading === "number") {
                     return isFinite(reading) ? reading : null;
                 }
-                if (typeof reading.value === "number" && isFinite(reading.value)) {
-                    return reading.value;
-                }
+                var nested = toNumber(reading.value, NaN);
+                return isFinite(nested) ? nested : null;
             } catch (error) {
                 return null;
             }
-
-            return null;
         }
 
         function colorForTemp(temp) {
@@ -146,59 +104,27 @@
             var hot = toColor(readSetting("hotColor", "#ff0000"), "#ff0000");
 
             if (temp == null) {
-                return { fill: "#1a1a1a", state: "NO SENSOR", detail: "Pick a CPU temp sensor or turn on Test Mode." };
+                return "rgb(26,26,26)";
             }
+
+            temp = toNumber(temp, 0);
+
             if (temp >= hotLimit) {
-                var speed = Math.max(1, toNumber(readSetting("flashSpeed", 4), 4));
-                var pulseMs = 550 / speed;
-                var flashingOn = (Date.now() % (pulseMs * 2)) < pulseMs;
-                return {
-                    fill: flashingOn ? hot : "#4d0000",
-                    state: "OVERHEAT",
-                    detail: "Flashing red at " + Math.round(temp) + " C"
-                };
+                var speed = Math.max(1, toNumber(readSetting("flashSpeed", 3), 3));
+                var halfMs = 1200 / speed;
+                var flashingOn = (Date.now() % (halfMs * 2)) < halfMs;
+                return flashingOn ? hot : "rgb(0,0,0)";
             }
             if (temp > safeLimit) {
-                return { fill: warm, state: "WARM", detail: "Solid blue at " + Math.round(temp) + " C" };
+                return warm;
             }
-            return { fill: safe, state: "SAFE", detail: "Solid green at " + Math.round(temp) + " C" };
+            return safe;
         }
 
         function update() {
-            if (runningInBrowser) {
-                window.testMode = 1;
-                window.testTemp = toNumber(hudSlider.value, 45);
-            }
-
-            var temp = readCpuTemp();
-            var look = colorForTemp(temp);
-
-            ctx.fillStyle = look.fill;
+            ctx.fillStyle = colorForTemp(readCpuTemp());
             ctx.fillRect(0, 0, width, height);
-
-            if (runningInBrowser && look.state !== lastState) {
-                lastState = look.state;
-            }
-            if (runningInBrowser) {
-                hudTemp.textContent = (temp == null ? "--" : Math.round(temp)) + " C";
-                hudState.textContent = look.detail;
-                hudState.style.color = look.state === "OVERHEAT" ? "#ff6666" : (look.state === "WARM" ? "#66b3ff" : "#7dff9a");
-            }
-
             window.requestAnimationFrame(update);
-        }
-
-        if (runningInBrowser) {
-            hudSlider.addEventListener("input", function () {
-                window.testTemp = toNumber(hudSlider.value, 45);
-            });
-            var buttons = browserHud.querySelectorAll("button[data-temp]");
-            for (var i = 0; i < buttons.length; i++) {
-                buttons[i].addEventListener("click", function () {
-                    hudSlider.value = this.getAttribute("data-temp");
-                    window.testTemp = toNumber(hudSlider.value, 45);
-                });
-            }
         }
 
         window.requestAnimationFrame(update);
